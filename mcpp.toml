@@ -53,7 +53,7 @@ name        = "picolibc"
 # a package's version has to move when the PACKAGING changes, and the packaging
 # is most of what is here. `openkal-musl` is 0.13.1 for musl 1.2.5 for the same
 # reason. Upstream's version is in the description, where it describes.
-version     = "0.1.0"
+version     = "0.1.1"
 description = "picolibc 1.8.12 as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
 license     = "BSD-3-Clause"
 authors     = ["mcpplibs"]
@@ -70,7 +70,7 @@ provides    = ["mcpp:c-abi=picolibc"]
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-llvm.compiler-rt-builtins = "0.1.0"
+llvm.compiler-rt-builtins = "0.1.1"
 
 # ⚠️⚠️ THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #
