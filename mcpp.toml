@@ -41,7 +41,12 @@
 # block plus its long-double directory — and a measurement, which is the part
 # that cannot be skipped.
 [package]
-namespace   = "mcpplibs"
+# ⚠️ THE NAMESPACE IS UPSTREAM'S, NOT OURS. This package vendors picolibc's
+# sources and adds a manifest; the code is picolibc's and the identity says so.
+# `mcpplibs` is for packages whose content this organisation wrote —
+# `cortex-m-rt` is one. The wrapper REPOSITORY can still live under mcpplibs;
+# `ocornut.imgui` is published from `mcpplibs/imgui-m` for the same reason.
+namespace   = "picolibc"
 name        = "picolibc"
 # ⚠️ THE PACKAGE'S OWN VERSION, NOT UPSTREAM'S. The first release took
 # `1.8.12` — the version of the sources it vendors — and that is wrong in kind:
@@ -65,7 +70,7 @@ provides    = ["mcpp:c-abi=picolibc"]
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-compiler-rt-builtins = "0.1.0"
+llvm.compiler-rt-builtins = "0.1.0"
 
 # ⚠️⚠️ THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #
