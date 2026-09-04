@@ -78,7 +78,7 @@ name        = "picolibc"
 # never come to mean something else, so the packaging revision is what moves.
 # A consumer still writes `1.8.12`: a bare requirement is a caret, and `1.8.12.1`
 # satisfies it.
-version     = "1.8.12.1"
+version     = "1.8.12.2"
 description = "picolibc as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
 # THE LICENCE IS A SET, AND NAMING ONE MEMBER OF IT WOULD READ AS EXAMINED.
 # picolibc descends from newlib and the vendored tree carries five identifiers,
@@ -102,7 +102,7 @@ provides    = ["mcpp:c-abi=picolibc"]
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-llvm.compiler-rt-builtins = { version = "22.1.8", path = "../compiler-rt-builtins" }
+llvm.compiler-rt-builtins = "22.1.8"
 
 # THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #
@@ -177,8 +177,12 @@ dummyhost = { sources = ["picolibc/libos/dummyhost/*.c",
                          "picolibc/libos/fallback/sigprocmask.c"] }
 
 [build]
-language     = "c11"
-import_std   = false
+# THE KEY IS `c_standard`, AND THE TWO IT REPLACES WERE SILENTLY IGNORED.
+# `language` and `import_std` are not part of `[build]`; mcpp reported both as
+# unsupported and carried on, so this package compiled at whatever the default
+# C standard was rather than the one it asked for. `import_std` has no
+# equivalent and needs none: nothing here is C++.
+c_standard   = "c11"
 include_dirs = [
   "generated",
   "picolibc",
