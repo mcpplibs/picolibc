@@ -1,0 +1,543 @@
+# picolibc as a SOURCE package: compiled with the consuming program's own flags.
+#
+# ⭐⭐ THERE IS NO MULTILIB HERE, AND THAT IS THE WHOLE POINT.
+#
+# A prebuilt C library has to ship one build per ABI the target table can name
+# — seven for Cortex-M alone — and every consumer then finds the right one
+# through a `libdir` convention that must match the payload byte for byte. That
+# convention is what #481 was filed about, and on ARM it breaks in a way nothing
+# reports: the key `<march>/<mabi>` cannot separate the float ABI, because
+# `mabi` there names the procedure call standard and is `aapcs` either way.
+# Measured while building the prebuilt: the seven profiles collapsed into five
+# directories and the soft-float row received a library carrying
+# `Tag_ABI_HardFP_use`.
+#
+# A source package has none of that. It is compiled with the SAME
+# `compile_flags` as the program consuming it, so ABI agreement holds by
+# construction rather than by a naming convention, and there is one copy of
+# everything.
+#
+# ⚠️ AND THE HEADERS WERE NEVER PER-PROFILE ANYWAY. Measured across the seven
+# builds of the prebuilt payload: the whole include tree — `picolibc.h` and
+# `newlib.h`, which meson GENERATES, included — is byte-identical. The prebuilt
+# shipped seven copies of one directory.
+#
+# ⚠️ THE SOURCE LIST IS UPSTREAM'S, NOT A GUESS. It was read out of the
+# `build.ninja` meson produced for armv7-m/aapcs, and it is identical for every
+# M-profile profile (same 1130 files, sha b109bf04…). The exclusions below are
+# that list's complement, and each group has a reason:
+#
+#   libc/native                     host-only, for picolibc's own test programs
+#   libm/ld/{ld80,ld128,ldd,common} long-double variants selected by
+#                                   LDBL_MANT_DIG; on ARM `long double` is
+#                                   `double`, so none applies
+#   *_engine.c, vfprintf_*.c        #included by their siblings, not compiled
+#   libc/string/mem*.c, str*.c      superseded by libc/machine/<arch>
+#   libm/{common,math}/...          the same, for routines a machine dir provides
+#
+# ⚠️ THIS RELEASE SERVES THE ARM FAMILY, AND SAYS SO. Sources and machine
+# directories for aarch64, riscv and x86 are vendored, but only the seven
+# M-profile profiles have been built and run. Adding an architecture is a `cfg`
+# block plus its long-double directory — and a measurement, which is the part
+# that cannot be skipped.
+[package]
+namespace   = "mcpplibs"
+name        = "picolibc"
+version     = "1.8.12"
+description = "picolibc as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
+license     = "BSD-3-Clause"
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/picolibc"
+
+# ⭐ The capability a target-side layer is selected by. A project asks for a C
+# library by naming this; it never names a payload path.
+provides    = ["mcpp:c-abi=picolibc"]
+
+# ⚠️ TWO PACKAGES, AND THE EDGE IS WHY. picolibc's `printf` formats floats
+# through ryu, which calls routines the compiler emits references to and no C
+# library defines — and on rv64 a 128-bit shift the instruction set has no
+# instruction for. A single package carrying both would be wrong for anyone
+# supplying their own builtins; the dependency edge says the same thing and can
+# be overridden.
+[dependencies]
+compiler-rt-builtins = { version = "22.1.8", path = "../compiler-rt-builtins" }
+
+# ⚠️⚠️ THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
+#
+# `libos/semihost` reaches the host through the debugger channel; `libos/dummyhost`
+# answers every system call with a failure. They define the SAME functions —
+# `close`, `write`, `times`, `statvfs` — and upstream builds them into two
+# separate archives so a program links exactly one. Compiling both into one
+# library is not a superset, it is
+#
+#     ld.lld: error: duplicate symbol: statvfs
+#
+# which is how this was found. So it is a feature, and the default is the one a
+# board reaches a debugger with.
+#
+# ⚠️⚠️ AND UPSTREAM KEEPS THEM APART BY *ARCHIVE*, WHICH A FLAT LIBRARY CANNOT.
+#
+# `libos/fallback` goes into `libc.a`, the host layer into its own archive, and a
+# link pulls an archive member only if the symbol is still undefined — so a
+# duplicate between them is resolved silently by link order. mcpp links a
+# dependency's objects UNCONDITIONALLY, so the same duplicate is an error.
+#
+# The overlap is exactly three files, measured rather than assumed:
+#
+#     fallback ∩ semihost/fake  =  getpid, kill
+#     fallback ∩ dummyhost      =  sigprocmask
+#
+# They are excluded from the unconditional list and each host layer brings its
+# own. Everything else in `libos/fallback` is unconditional, because upstream
+# compiles it into `libc.a` itself — measured in the build file.
+# ⚠️⚠️ `picocrt` IS NOT HERE, AND THAT IS THE LAYERING RATHER THAN AN OMISSION.
+#
+# A startup object decides where execution begins, what it initialises and how
+# it reaches the host — which board is running, in other words. picolibc ships
+# nine variants for exactly that reason, and choosing among them is what a
+# board-support package is for: `riscv-virt-rt` says it in as many words
+# ("location is a target fact; selection is a board fact"), and `cortex-m-rt`
+# supplies its own vector table and `Reset_Handler`.
+#
+# Shipping one here would make this package decide, and the decision would be
+# wrong for every board that disagrees. Measured while trying: including
+# `picocrt/machine/arm/crt0.c` pulls `_set_tls` and the rest of picocrt's TLS
+# contract into a link that has no picocrt.
+
+[features]
+default   = ["semihost"]
+# ⚠️⚠️ THE `fake/` FILES ARE LISTED, NOT GLOBBED, AND THE LIST IS UPSTREAM'S.
+#
+# `fake/` is the COMPLEMENT of `common/`, not an alternative to it: upstream
+# compiles 13 of its 26 files — the ones `common/` does not provide — and a glob
+# over the directory produces a duplicate symbol for each of the other 13.
+#
+# ⚠️ AND THE COMPLEMENT CANNOT BE COMPUTED FROM THE FILENAMES. Excluding by name
+# got 12 of the 13 and left `fake_io.c`, which defines `stdin`/`stdout`/`stderr`
+# against `common/iob.c` — same symbols, unrelated names. So the list is read
+# out of the build file meson produced, which is the only place it is stated.
+semihost  = { sources = ["picolibc/libos/semihost/common/*.c",
+                         "picolibc/libos/semihost/fake/fake_access.c",
+                         "picolibc/libos/semihost/fake/fake_closedir.c",
+                         "picolibc/libos/semihost/fake/fake_fstatvfs.c",
+                         "picolibc/libos/semihost/fake/fake_ftruncate.c",
+                         "picolibc/libos/semihost/fake/fake_getcwd.c",
+                         "picolibc/libos/semihost/fake/fake_getpid.c",
+                         "picolibc/libos/semihost/fake/fake_getrlimit.c",
+                         "picolibc/libos/semihost/fake/fake_kill.c",
+                         "picolibc/libos/semihost/fake/fake_opendir.c",
+                         "picolibc/libos/semihost/fake/fake_readdir.c",
+                         "picolibc/libos/semihost/fake/fake_setrlimit.c",
+                         "picolibc/libos/semihost/fake/fake_stat.c",
+                         "picolibc/libos/semihost/fake/fake_statvfs.c"] }
+
+dummyhost = { sources = ["picolibc/libos/dummyhost/*.c",
+                         "picolibc/libos/fallback/sigprocmask.c"] }
+
+[build]
+language     = "c11"
+import_std   = false
+include_dirs = [
+  "generated",
+  "picolibc",
+  "picolibc/libc/include",
+  "picolibc/libc/locale",
+  "picolibc/libc/stdio",
+  "picolibc/libm/common",
+  "picolibc/libos/dummyhost",
+  "picolibc/libos/semihost",
+  "picolibc/libos/semihost/common",
+]
+
+# ⚠️ `sources` HERE IS THE ARCHITECTURE-INDEPENDENT HALF. The machine
+# directories are selected per target below, because which one applies is the
+# one thing this list cannot say.
+sources = [
+  "picolibc/libc/**/*.c",
+  "picolibc/libm/**/*.c",
+  "picolibc/libos/fallback/*.c",
+
+  # ⚠️⚠️ THE THREE `fallback` FILES A HOST LAYER ALSO PROVIDES. See the note
+  # above `[features]`: upstream keeps them apart by ARCHIVE, and a flat library
+  # cannot. Measured — the overlap is exactly these three, and nothing else.
+  "!picolibc/libos/fallback/getpid.c",
+  "!picolibc/libos/fallback/kill.c",
+  "!picolibc/libos/fallback/sigprocmask.c",
+
+  # ⚠️⚠️ THE MACHINE DIRECTORIES ARE NOT EXCLUDED HERE, AND PUTTING THEM HERE IS
+  # WHAT DOES NOT WORK. A negative glob in the base set is applied to the MERGED
+  # set, so `!picolibc/libc/machine/**` cancels the per-target block that adds
+  # the right one back. Measured: with it, `mcpp build --target
+  # thumbv7m-none-eabi` compiled every shared file and no machine file, and the
+  # link failed on `undefined symbol: memcpy`.
+  #
+  # Each per-target block below excludes the four architectures it is NOT, which
+  # is the same statement made where it can be true.
+
+  # Host-only, and the long-double variants no ARM target selects.
+  "!picolibc/libc/native/**",
+  "!picolibc/libm/ld/common/**",
+  "!picolibc/libm/ld/ld80/**",
+  "!picolibc/libm/ld/ld128/**",
+  "!picolibc/libm/ld/ldd/**",
+
+  "!picolibc/libc/locale/posix_locale.c",
+  "!picolibc/libc/posix/engine.c",
+  "!picolibc/libc/stdio/atod_engine.c",
+  "!picolibc/libc/stdio/atof_engine.c",
+  "!picolibc/libc/stdio/conv_flt.c",
+  "!picolibc/libc/stdio/dtoa_engine.c",
+  "!picolibc/libc/stdio/ftoa_engine.c",
+  "!picolibc/libc/stdio/posixiob_stderr.c",
+  "!picolibc/libc/stdio/posixiob_stdin.c",
+  "!picolibc/libc/stdio/posixiob_stdout.c",
+  "!picolibc/libc/stdio/ultoa_invert.c",
+  "!picolibc/libc/stdio/vfprintf_char.c",
+  "!picolibc/libc/stdio/vfprintf_float.c",
+  "!picolibc/libc/stdio/vfprintf_int.c",
+  "!picolibc/libc/stdio/vfprintf_n.c",
+  "!picolibc/libc/stdio/vfprintf_str.c",
+  "!picolibc/libc/string/bzero.c",
+  "!picolibc/libc/string/memchr.c",
+  "!picolibc/libc/string/memcpy.c",
+  "!picolibc/libc/string/memmove.c",
+  "!picolibc/libc/string/memset.c",
+  "!picolibc/libc/string/strcmp.c",
+  "!picolibc/libc/string/strcpy.c",
+  "!picolibc/libc/string/strlen.c",
+  "!picolibc/libc/xdr/xdr_float_vax.c",
+  "!picolibc/libm/common/cosf.c",
+  "!picolibc/libm/common/exp.c",
+  "!picolibc/libm/common/exp2.c",
+  "!picolibc/libm/common/isgreater.c",
+  "!picolibc/libm/common/log.c",
+  "!picolibc/libm/common/log2.c",
+  "!picolibc/libm/common/nexttowardl.c",
+  "!picolibc/libm/common/pow.c",
+  "!picolibc/libm/common/s_nearbyint.c",
+  "!picolibc/libm/common/s_rint.c",
+  "!picolibc/libm/common/s_round.c",
+  "!picolibc/libm/common/s_trunc.c",
+  "!picolibc/libm/common/scalbnl.c",
+  "!picolibc/libm/common/sf_exp.c",
+  "!picolibc/libm/common/sf_exp2.c",
+  "!picolibc/libm/common/sf_log.c",
+  "!picolibc/libm/common/sf_log2.c",
+  "!picolibc/libm/common/sf_nearbyint.c",
+  "!picolibc/libm/common/sf_pow.c",
+  "!picolibc/libm/common/sf_rint.c",
+  "!picolibc/libm/common/sf_round.c",
+  "!picolibc/libm/common/sf_trunc.c",
+  "!picolibc/libm/common/sincosf.c",
+  "!picolibc/libm/common/sinf.c",
+  "!picolibc/libm/math/s_ceil.c",
+  "!picolibc/libm/math/s_fabs.c",
+  "!picolibc/libm/math/s_floor.c",
+  "!picolibc/libm/math/s_gamma.c",
+  "!picolibc/libm/math/s_sqrt.c",
+  "!picolibc/libm/math/sf_ceil.c",
+  "!picolibc/libm/math/sf_fabs.c",
+  "!picolibc/libm/math/sf_floor.c",
+  "!picolibc/libm/math/sf_gamma.c",
+  "!picolibc/libm/math/sf_sqrt.c",
+]
+
+# ── The machine half ────────────────────────────────────────────
+#
+# ⚠️ ONE BLOCK PER ARCH SPELLING, BECAUSE `cfg(arch = ...)` COMPARES EXACTLY.
+# There is no glob, and mcpp spells each M-profile row's arch differently
+# because objects built for them are not interchangeable. The CONTENT of every
+# block is the same — that is the point: one machine directory serves the whole
+# family, and only the selection is per row.
+[target.'cfg(arch = "thumbv6m")'.build]
+sources = [
+           # The four architectures this target is NOT. They must be excluded
+           # HERE rather than in the base set: a negative glob in the base is
+           # applied to the merged set and would cancel the additions below.
+           "!picolibc/libc/machine/aarch64/**", "!picolibc/libm/machine/aarch64/**",
+           "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
+           "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
+           "!picolibc/libc/machine/x86_64/**",
+           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
+           # and Thumb-2, neither of which an M-profile core has — and meson picks
+           # among them by CPU feature. A glob assembles all of them and dies on
+           #
+           #     instruction requires: arm-mode
+           #             ldr r10, [sp], #32
+           #
+           # These are the 18 + 18 files upstream compiles for a soft-float
+           # M-profile target, read out of a real build.
+           "picolibc/libc/machine/arm/aeabi_memset.c",
+           "picolibc/libc/machine/arm/bzero.c",
+           "picolibc/libc/machine/arm/interrupt.c",
+           "picolibc/libc/machine/arm/memchr.S",
+           "picolibc/libc/machine/arm/memchr.c",
+           "picolibc/libc/machine/arm/memcpy.S",
+           "picolibc/libc/machine/arm/memcpy.c",
+           "picolibc/libc/machine/arm/memmove.c",
+           "picolibc/libc/machine/arm/memset.S",
+           "picolibc/libc/machine/arm/memset.c",
+           "picolibc/libc/machine/arm/read_tp.S",
+           "picolibc/libc/machine/arm/set_tls.c",
+           "picolibc/libc/machine/arm/setjmp.S",
+           "picolibc/libc/machine/arm/strcmp.S",
+           "picolibc/libc/machine/arm/strcpy.S",
+           "picolibc/libc/machine/arm/strlen.S",
+           "picolibc/libc/machine/arm/strlen.c",
+           "picolibc/libc/machine/arm/tls.c",
+           "picolibc/libm/machine/arm/s_ceil.c",
+           "picolibc/libm/machine/arm/s_fabs.c",
+           "picolibc/libm/machine/arm/s_floor.c",
+           "picolibc/libm/machine/arm/s_fma_arm.c",
+           "picolibc/libm/machine/arm/s_nearbyint.c",
+           "picolibc/libm/machine/arm/s_rint.c",
+           "picolibc/libm/machine/arm/s_round.c",
+           "picolibc/libm/machine/arm/s_sqrt.c",
+           "picolibc/libm/machine/arm/s_trunc.c",
+           "picolibc/libm/machine/arm/sf_ceil.c",
+           "picolibc/libm/machine/arm/sf_fabs.c",
+           "picolibc/libm/machine/arm/sf_floor.c",
+           "picolibc/libm/machine/arm/sf_fma_arm.c",
+           "picolibc/libm/machine/arm/sf_nearbyint.c",
+           "picolibc/libm/machine/arm/sf_rint.c",
+           "picolibc/libm/machine/arm/sf_round.c",
+           "picolibc/libm/machine/arm/sf_sqrt.c",
+           "picolibc/libm/machine/arm/sf_trunc.c",
+           "picolibc/libos/semihost/machine/arm/*.S"]
+include_dirs = ["picolibc/libc/machine/arm"]
+
+[target.'cfg(arch = "thumbv7m")'.build]
+sources = [
+           # The four architectures this target is NOT. They must be excluded
+           # HERE rather than in the base set: a negative glob in the base is
+           # applied to the merged set and would cancel the additions below.
+           "!picolibc/libc/machine/aarch64/**", "!picolibc/libm/machine/aarch64/**",
+           "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
+           "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
+           "!picolibc/libc/machine/x86_64/**",
+           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
+           # and Thumb-2, neither of which an M-profile core has — and meson picks
+           # among them by CPU feature. A glob assembles all of them and dies on
+           #
+           #     instruction requires: arm-mode
+           #             ldr r10, [sp], #32
+           #
+           # These are the 18 + 18 files upstream compiles for a soft-float
+           # M-profile target, read out of a real build.
+           "picolibc/libc/machine/arm/aeabi_memset.c",
+           "picolibc/libc/machine/arm/bzero.c",
+           "picolibc/libc/machine/arm/interrupt.c",
+           "picolibc/libc/machine/arm/memchr.S",
+           "picolibc/libc/machine/arm/memchr.c",
+           "picolibc/libc/machine/arm/memcpy.S",
+           "picolibc/libc/machine/arm/memcpy.c",
+           "picolibc/libc/machine/arm/memmove.c",
+           "picolibc/libc/machine/arm/memset.S",
+           "picolibc/libc/machine/arm/memset.c",
+           "picolibc/libc/machine/arm/read_tp.S",
+           "picolibc/libc/machine/arm/set_tls.c",
+           "picolibc/libc/machine/arm/setjmp.S",
+           "picolibc/libc/machine/arm/strcmp.S",
+           "picolibc/libc/machine/arm/strcpy.S",
+           "picolibc/libc/machine/arm/strlen.S",
+           "picolibc/libc/machine/arm/strlen.c",
+           "picolibc/libc/machine/arm/tls.c",
+           "picolibc/libm/machine/arm/s_ceil.c",
+           "picolibc/libm/machine/arm/s_fabs.c",
+           "picolibc/libm/machine/arm/s_floor.c",
+           "picolibc/libm/machine/arm/s_fma_arm.c",
+           "picolibc/libm/machine/arm/s_nearbyint.c",
+           "picolibc/libm/machine/arm/s_rint.c",
+           "picolibc/libm/machine/arm/s_round.c",
+           "picolibc/libm/machine/arm/s_sqrt.c",
+           "picolibc/libm/machine/arm/s_trunc.c",
+           "picolibc/libm/machine/arm/sf_ceil.c",
+           "picolibc/libm/machine/arm/sf_fabs.c",
+           "picolibc/libm/machine/arm/sf_floor.c",
+           "picolibc/libm/machine/arm/sf_fma_arm.c",
+           "picolibc/libm/machine/arm/sf_nearbyint.c",
+           "picolibc/libm/machine/arm/sf_rint.c",
+           "picolibc/libm/machine/arm/sf_round.c",
+           "picolibc/libm/machine/arm/sf_sqrt.c",
+           "picolibc/libm/machine/arm/sf_trunc.c",
+           "picolibc/libos/semihost/machine/arm/*.S"]
+include_dirs = ["picolibc/libc/machine/arm"]
+
+[target.'cfg(arch = "thumbv7em")'.build]
+sources = [
+           # The four architectures this target is NOT. They must be excluded
+           # HERE rather than in the base set: a negative glob in the base is
+           # applied to the merged set and would cancel the additions below.
+           "!picolibc/libc/machine/aarch64/**", "!picolibc/libm/machine/aarch64/**",
+           "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
+           "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
+           "!picolibc/libc/machine/x86_64/**",
+           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
+           # and Thumb-2, neither of which an M-profile core has — and meson picks
+           # among them by CPU feature. A glob assembles all of them and dies on
+           #
+           #     instruction requires: arm-mode
+           #             ldr r10, [sp], #32
+           #
+           # These are the 18 + 18 files upstream compiles for a soft-float
+           # M-profile target, read out of a real build.
+           "picolibc/libc/machine/arm/aeabi_memset.c",
+           "picolibc/libc/machine/arm/bzero.c",
+           "picolibc/libc/machine/arm/interrupt.c",
+           "picolibc/libc/machine/arm/memchr.S",
+           "picolibc/libc/machine/arm/memchr.c",
+           "picolibc/libc/machine/arm/memcpy.S",
+           "picolibc/libc/machine/arm/memcpy.c",
+           "picolibc/libc/machine/arm/memmove.c",
+           "picolibc/libc/machine/arm/memset.S",
+           "picolibc/libc/machine/arm/memset.c",
+           "picolibc/libc/machine/arm/read_tp.S",
+           "picolibc/libc/machine/arm/set_tls.c",
+           "picolibc/libc/machine/arm/setjmp.S",
+           "picolibc/libc/machine/arm/strcmp.S",
+           "picolibc/libc/machine/arm/strcpy.S",
+           "picolibc/libc/machine/arm/strlen.S",
+           "picolibc/libc/machine/arm/strlen.c",
+           "picolibc/libc/machine/arm/tls.c",
+           "picolibc/libm/machine/arm/s_ceil.c",
+           "picolibc/libm/machine/arm/s_fabs.c",
+           "picolibc/libm/machine/arm/s_floor.c",
+           "picolibc/libm/machine/arm/s_fma_arm.c",
+           "picolibc/libm/machine/arm/s_nearbyint.c",
+           "picolibc/libm/machine/arm/s_rint.c",
+           "picolibc/libm/machine/arm/s_round.c",
+           "picolibc/libm/machine/arm/s_sqrt.c",
+           "picolibc/libm/machine/arm/s_trunc.c",
+           "picolibc/libm/machine/arm/sf_ceil.c",
+           "picolibc/libm/machine/arm/sf_fabs.c",
+           "picolibc/libm/machine/arm/sf_floor.c",
+           "picolibc/libm/machine/arm/sf_fma_arm.c",
+           "picolibc/libm/machine/arm/sf_nearbyint.c",
+           "picolibc/libm/machine/arm/sf_rint.c",
+           "picolibc/libm/machine/arm/sf_round.c",
+           "picolibc/libm/machine/arm/sf_sqrt.c",
+           "picolibc/libm/machine/arm/sf_trunc.c",
+           "picolibc/libos/semihost/machine/arm/*.S"]
+include_dirs = ["picolibc/libc/machine/arm"]
+
+[target.'cfg(arch = "thumbv8m.base")'.build]
+sources = [
+           # The four architectures this target is NOT. They must be excluded
+           # HERE rather than in the base set: a negative glob in the base is
+           # applied to the merged set and would cancel the additions below.
+           "!picolibc/libc/machine/aarch64/**", "!picolibc/libm/machine/aarch64/**",
+           "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
+           "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
+           "!picolibc/libc/machine/x86_64/**",
+           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
+           # and Thumb-2, neither of which an M-profile core has — and meson picks
+           # among them by CPU feature. A glob assembles all of them and dies on
+           #
+           #     instruction requires: arm-mode
+           #             ldr r10, [sp], #32
+           #
+           # These are the 18 + 18 files upstream compiles for a soft-float
+           # M-profile target, read out of a real build.
+           "picolibc/libc/machine/arm/aeabi_memset.c",
+           "picolibc/libc/machine/arm/bzero.c",
+           "picolibc/libc/machine/arm/interrupt.c",
+           "picolibc/libc/machine/arm/memchr.S",
+           "picolibc/libc/machine/arm/memchr.c",
+           "picolibc/libc/machine/arm/memcpy.S",
+           "picolibc/libc/machine/arm/memcpy.c",
+           "picolibc/libc/machine/arm/memmove.c",
+           "picolibc/libc/machine/arm/memset.S",
+           "picolibc/libc/machine/arm/memset.c",
+           "picolibc/libc/machine/arm/read_tp.S",
+           "picolibc/libc/machine/arm/set_tls.c",
+           "picolibc/libc/machine/arm/setjmp.S",
+           "picolibc/libc/machine/arm/strcmp.S",
+           "picolibc/libc/machine/arm/strcpy.S",
+           "picolibc/libc/machine/arm/strlen.S",
+           "picolibc/libc/machine/arm/strlen.c",
+           "picolibc/libc/machine/arm/tls.c",
+           "picolibc/libm/machine/arm/s_ceil.c",
+           "picolibc/libm/machine/arm/s_fabs.c",
+           "picolibc/libm/machine/arm/s_floor.c",
+           "picolibc/libm/machine/arm/s_fma_arm.c",
+           "picolibc/libm/machine/arm/s_nearbyint.c",
+           "picolibc/libm/machine/arm/s_rint.c",
+           "picolibc/libm/machine/arm/s_round.c",
+           "picolibc/libm/machine/arm/s_sqrt.c",
+           "picolibc/libm/machine/arm/s_trunc.c",
+           "picolibc/libm/machine/arm/sf_ceil.c",
+           "picolibc/libm/machine/arm/sf_fabs.c",
+           "picolibc/libm/machine/arm/sf_floor.c",
+           "picolibc/libm/machine/arm/sf_fma_arm.c",
+           "picolibc/libm/machine/arm/sf_nearbyint.c",
+           "picolibc/libm/machine/arm/sf_rint.c",
+           "picolibc/libm/machine/arm/sf_round.c",
+           "picolibc/libm/machine/arm/sf_sqrt.c",
+           "picolibc/libm/machine/arm/sf_trunc.c",
+           "picolibc/libos/semihost/machine/arm/*.S"]
+include_dirs = ["picolibc/libc/machine/arm"]
+
+[target.'cfg(arch = "thumbv8m.main")'.build]
+sources = [
+           # The four architectures this target is NOT. They must be excluded
+           # HERE rather than in the base set: a negative glob in the base is
+           # applied to the merged set and would cancel the additions below.
+           "!picolibc/libc/machine/aarch64/**", "!picolibc/libm/machine/aarch64/**",
+           "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
+           "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
+           "!picolibc/libc/machine/x86_64/**",
+           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
+           # and Thumb-2, neither of which an M-profile core has — and meson picks
+           # among them by CPU feature. A glob assembles all of them and dies on
+           #
+           #     instruction requires: arm-mode
+           #             ldr r10, [sp], #32
+           #
+           # These are the 18 + 18 files upstream compiles for a soft-float
+           # M-profile target, read out of a real build.
+           "picolibc/libc/machine/arm/aeabi_memset.c",
+           "picolibc/libc/machine/arm/bzero.c",
+           "picolibc/libc/machine/arm/interrupt.c",
+           "picolibc/libc/machine/arm/memchr.S",
+           "picolibc/libc/machine/arm/memchr.c",
+           "picolibc/libc/machine/arm/memcpy.S",
+           "picolibc/libc/machine/arm/memcpy.c",
+           "picolibc/libc/machine/arm/memmove.c",
+           "picolibc/libc/machine/arm/memset.S",
+           "picolibc/libc/machine/arm/memset.c",
+           "picolibc/libc/machine/arm/read_tp.S",
+           "picolibc/libc/machine/arm/set_tls.c",
+           "picolibc/libc/machine/arm/setjmp.S",
+           "picolibc/libc/machine/arm/strcmp.S",
+           "picolibc/libc/machine/arm/strcpy.S",
+           "picolibc/libc/machine/arm/strlen.S",
+           "picolibc/libc/machine/arm/strlen.c",
+           "picolibc/libc/machine/arm/tls.c",
+           "picolibc/libm/machine/arm/s_ceil.c",
+           "picolibc/libm/machine/arm/s_fabs.c",
+           "picolibc/libm/machine/arm/s_floor.c",
+           "picolibc/libm/machine/arm/s_fma_arm.c",
+           "picolibc/libm/machine/arm/s_nearbyint.c",
+           "picolibc/libm/machine/arm/s_rint.c",
+           "picolibc/libm/machine/arm/s_round.c",
+           "picolibc/libm/machine/arm/s_sqrt.c",
+           "picolibc/libm/machine/arm/s_trunc.c",
+           "picolibc/libm/machine/arm/sf_ceil.c",
+           "picolibc/libm/machine/arm/sf_fabs.c",
+           "picolibc/libm/machine/arm/sf_floor.c",
+           "picolibc/libm/machine/arm/sf_fma_arm.c",
+           "picolibc/libm/machine/arm/sf_nearbyint.c",
+           "picolibc/libm/machine/arm/sf_rint.c",
+           "picolibc/libm/machine/arm/sf_round.c",
+           "picolibc/libm/machine/arm/sf_sqrt.c",
+           "picolibc/libm/machine/arm/sf_trunc.c",
+           "picolibc/libos/semihost/machine/arm/*.S"]
+include_dirs = ["picolibc/libc/machine/arm"]
+
+[targets.picolibc]
+kind = "lib"
