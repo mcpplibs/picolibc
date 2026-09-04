@@ -5,14 +5,16 @@ flags**.
 
 ```toml
 [dependencies]
-picolibc = "1.8.12"
+picolibc.picolibc = "1.8.12"
 ```
 
 That is the whole of it. No `sysroot` line, no payload path, no multilib
 directory to name — the library arrives through the dependency graph and mcpp
-reports `c-abi picolibc (picolibc@1.8.12, graph)`.
+reports `c-abi picolibc (picolibc@1.8.12, graph)`. The version is
+upstream's: every file under `picolibc/` is byte-identical to the 1.8.12
+release, and a packaging-only change would be `1.8.12.1`.
 
-## ⭐⭐ Why source rather than a prebuilt payload
+## Why source rather than a prebuilt payload
 
 A prebuilt C library ships one build per ABI the target table can name — seven
 for Cortex-M alone — and every consumer then finds the right one through a
@@ -26,13 +28,13 @@ for Cortex-M alone — and every consumer then finds the right one through a
 | five host mirrors, `.sha256`, CDN propagation | a source tree, host-independent |
 | the version pinned in the target table, outside the lock | in `mcpp.lock` |
 
-⚠️ **And on ARM the prebuilt route is actively wrong.** The multilib key
+**And on ARM the prebuilt route is actively wrong.** The multilib key
 `<march>/<mabi>` cannot separate the float ABI, because `mabi` there names the
 procedure call standard and is `aapcs` either way. Measured while building one:
 the seven profiles collapsed into five directories and the soft-float row
 received a library carrying `Tag_ABI_HardFP_use`. Nothing failed at build time.
 
-⚠️ **The headers were never per-profile anyway.** Measured across seven builds:
+**The headers were never per-profile anyway.** Measured across seven builds:
 the whole include tree — including `picolibc.h` and `newlib.h`, which meson
 *generates* — is byte-identical. A prebuilt ships seven copies of one directory.
 
@@ -53,7 +55,7 @@ nine variants for that reason, and choosing among them is a board-support
 package's job. `cortex-m-rt` supplies its own vector table, `Reset_Handler` and
 TLS initialisation.
 
-⚠️ A board that supplies startup must set the **thread pointer**: picolibc
+A board that supplies startup must set the **thread pointer**: picolibc
 reaches `stdout` through thread-local storage, and without it a program links
 cleanly, runs, prints nothing and hangs. There is no diagnostic for that state.
 

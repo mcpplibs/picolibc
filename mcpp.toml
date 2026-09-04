@@ -1,6 +1,6 @@
 # picolibc as a SOURCE package: compiled with the consuming program's own flags.
 #
-# ⭐⭐ THERE IS NO MULTILIB HERE, AND THAT IS THE WHOLE POINT.
+# THERE IS NO MULTILIB HERE, AND THAT IS THE WHOLE POINT.
 #
 # A prebuilt C library has to ship one build per ABI the target table can name
 # — seven for Cortex-M alone — and every consumer then finds the right one
@@ -17,12 +17,12 @@
 # construction rather than by a naming convention, and there is one copy of
 # everything.
 #
-# ⚠️ AND THE HEADERS WERE NEVER PER-PROFILE ANYWAY. Measured across the seven
+# AND THE HEADERS WERE NEVER PER-PROFILE ANYWAY. Measured across the seven
 # builds of the prebuilt payload: the whole include tree — `picolibc.h` and
 # `newlib.h`, which meson GENERATES, included — is byte-identical. The prebuilt
 # shipped seven copies of one directory.
 #
-# ⚠️ THE SOURCE LIST IS UPSTREAM'S, NOT A GUESS. It was read out of the
+# THE SOURCE LIST IS UPSTREAM'S, NOT A GUESS. It was read out of the
 # `build.ninja` meson produced for armv7-m/aapcs, and it is identical for every
 # M-profile profile (same 1130 files, sha b109bf04…). The exclusions below are
 # that list's complement, and each group has a reason:
@@ -35,44 +35,76 @@
 #   libc/string/mem*.c, str*.c      superseded by libc/machine/<arch>
 #   libm/{common,math}/...          the same, for routines a machine dir provides
 #
-# ⚠️ THIS RELEASE SERVES THE ARM FAMILY, AND SAYS SO. Sources and machine
+# THIS RELEASE SERVES THE ARM FAMILY, AND SAYS SO. Sources and machine
 # directories for aarch64, riscv and x86 are vendored, but only the seven
 # M-profile profiles have been built and run. Adding an architecture is a `cfg`
 # block plus its long-double directory — and a measurement, which is the part
 # that cannot be skipped.
 [package]
-# ⚠️ THE NAMESPACE IS UPSTREAM'S, NOT OURS. This package vendors picolibc's
+# THE NAMESPACE IS UPSTREAM'S, NOT OURS. This package vendors picolibc's
 # sources and adds a manifest; the code is picolibc's and the identity says so.
 # `mcpplibs` is for packages whose content this organisation wrote —
 # `cortex-m-rt` is one. The wrapper REPOSITORY can still live under mcpplibs;
 # `ocornut.imgui` is published from `mcpplibs/imgui-m` for the same reason.
 namespace   = "picolibc"
 name        = "picolibc"
-# ⚠️ THE PACKAGE'S OWN VERSION, NOT UPSTREAM'S. The first release took
-# `1.8.12` — the version of the sources it vendors — and that is wrong in kind:
-# a package's version has to move when the PACKAGING changes, and the packaging
-# is most of what is here. `openkal-musl` is 0.13.1 for musl 1.2.5 for the same
-# reason. Upstream's version is in the description, where it describes.
-version     = "0.1.1"
-description = "picolibc 1.8.12 as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
-license     = "BSD-3-Clause"
-authors     = ["mcpplibs"]
+# AND THE VERSION IS UPSTREAM'S TOO, FOR THE REASON THE NAMESPACE IS.
+#
+# An intermediate release numbered this package independently (0.1.x) on the
+# argument that a version must move when the PACKAGING changes and upstream's
+# has not. The fourth segment answers that argument without a second numbering
+# scheme: a packaging-only release is `1.8.12.1`, which orders strictly above
+# `1.8.12` because mcpp compares an arbitrary-length dot list with absent
+# segments as zero, and which satisfies every requirement `1.8.12` satisfies
+# because a bare requirement is a caret. The number a consumer writes is
+# therefore the number upstream released, and a packaging fix remains
+# expressible.
+#
+# The alternative costs a reader the one question the version exists to answer.
+# `openkal-musl` is 0.13.1 for musl 1.2.5, and nothing in the identity says
+# which musl that is; it is defensible there because openkal-musl is a PORT and
+# most of its content is this organisation's. Here the content is upstream's,
+# unmodified, and an independent number would be an invention that only this
+# organisation can interpret.
+#
+# Verified against upstream, not asserted: every one of the 2109 files under
+# `picolibc/` is byte-identical to the 1.8.12 release tarball, whose
+# `meson.build` declares `version: '1.8.12'`. Upstream is
+# https://github.com/picolibc/picolibc.
+#
+# THIS RELEASE IS `1.8.12.1` AND NOT `1.8.12`, WHICH IS THE SCHEME IN USE RATHER
+# THAN AN EXCEPTION TO IT. An earlier tag named `1.8.12` was published, and
+# mirrored, carrying different bytes. A version that has been published must
+# never come to mean something else, so the packaging revision is what moves.
+# A consumer still writes `1.8.12`: a bare requirement is a caret, and `1.8.12.1`
+# satisfies it.
+version     = "1.8.12.1"
+description = "picolibc as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
+# THE LICENCE IS A SET, AND NAMING ONE MEMBER OF IT WOULD READ AS EXAMINED.
+# picolibc descends from newlib and the vendored tree carries five identifiers,
+# counted over the files actually shipped: BSD-3-Clause (902), BSD-3-Clause-Clear
+# (31), MIT (8), BSD-2-Clause-FreeBSD (5), BSD-2-Clause (4). `mcpp sbom` emits
+# this field verbatim into a document a legal review reads, where a single wrong
+# identifier is worse than silence. `LICENSE.picolibc` is upstream's per-file
+# mapping and remains the authority.
+license     = "BSD-3-Clause AND BSD-3-Clause-Clear AND MIT AND BSD-2-Clause"
+authors     = ["picolibc contributors", "mcpplibs (packaging)"]
 repo        = "https://github.com/mcpplibs/picolibc"
 
-# ⭐ The capability a target-side layer is selected by. A project asks for a C
+# The capability a target-side layer is selected by. A project asks for a C
 # library by naming this; it never names a payload path.
 provides    = ["mcpp:c-abi=picolibc"]
 
-# ⚠️ TWO PACKAGES, AND THE EDGE IS WHY. picolibc's `printf` formats floats
+# TWO PACKAGES, AND THE EDGE IS WHY. picolibc's `printf` formats floats
 # through ryu, which calls routines the compiler emits references to and no C
 # library defines — and on rv64 a 128-bit shift the instruction set has no
 # instruction for. A single package carrying both would be wrong for anyone
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-llvm.compiler-rt-builtins = "0.1.1"
+llvm.compiler-rt-builtins = { version = "22.1.8", path = "../compiler-rt-builtins" }
 
-# ⚠️⚠️ THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
+# THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #
 # `libos/semihost` reaches the host through the debugger channel; `libos/dummyhost`
 # answers every system call with a failure. They define the SAME functions —
@@ -85,7 +117,7 @@ llvm.compiler-rt-builtins = "0.1.1"
 # which is how this was found. So it is a feature, and the default is the one a
 # board reaches a debugger with.
 #
-# ⚠️⚠️ AND UPSTREAM KEEPS THEM APART BY *ARCHIVE*, WHICH A FLAT LIBRARY CANNOT.
+# AND UPSTREAM KEEPS THEM APART BY *ARCHIVE*, WHICH A FLAT LIBRARY CANNOT.
 #
 # `libos/fallback` goes into `libc.a`, the host layer into its own archive, and a
 # link pulls an archive member only if the symbol is still undefined — so a
@@ -100,7 +132,7 @@ llvm.compiler-rt-builtins = "0.1.1"
 # They are excluded from the unconditional list and each host layer brings its
 # own. Everything else in `libos/fallback` is unconditional, because upstream
 # compiles it into `libc.a` itself — measured in the build file.
-# ⚠️⚠️ `picocrt` IS NOT HERE, AND THAT IS THE LAYERING RATHER THAN AN OMISSION.
+# `picocrt` IS NOT HERE, AND THAT IS THE LAYERING RATHER THAN AN OMISSION.
 #
 # A startup object decides where execution begins, what it initialises and how
 # it reaches the host — which board is running, in other words. picolibc ships
@@ -116,13 +148,13 @@ llvm.compiler-rt-builtins = "0.1.1"
 
 [features]
 default   = ["semihost"]
-# ⚠️⚠️ THE `fake/` FILES ARE LISTED, NOT GLOBBED, AND THE LIST IS UPSTREAM'S.
+# THE `fake/` FILES ARE LISTED, NOT GLOBBED, AND THE LIST IS UPSTREAM'S.
 #
 # `fake/` is the COMPLEMENT of `common/`, not an alternative to it: upstream
 # compiles 13 of its 26 files — the ones `common/` does not provide — and a glob
 # over the directory produces a duplicate symbol for each of the other 13.
 #
-# ⚠️ AND THE COMPLEMENT CANNOT BE COMPUTED FROM THE FILENAMES. Excluding by name
+# AND THE COMPLEMENT CANNOT BE COMPUTED FROM THE FILENAMES. Excluding by name
 # got 12 of the 13 and left `fake_io.c`, which defines `stdin`/`stdout`/`stderr`
 # against `common/iob.c` — same symbols, unrelated names. So the list is read
 # out of the build file meson produced, which is the only place it is stated.
@@ -159,7 +191,7 @@ include_dirs = [
   "picolibc/libos/semihost/common",
 ]
 
-# ⚠️ `sources` HERE IS THE ARCHITECTURE-INDEPENDENT HALF. The machine
+# `sources` HERE IS THE ARCHITECTURE-INDEPENDENT HALF. The machine
 # directories are selected per target below, because which one applies is the
 # one thing this list cannot say.
 sources = [
@@ -167,14 +199,14 @@ sources = [
   "picolibc/libm/**/*.c",
   "picolibc/libos/fallback/*.c",
 
-  # ⚠️⚠️ THE THREE `fallback` FILES A HOST LAYER ALSO PROVIDES. See the note
+  # THE THREE `fallback` FILES A HOST LAYER ALSO PROVIDES. See the note
   # above `[features]`: upstream keeps them apart by ARCHIVE, and a flat library
   # cannot. Measured — the overlap is exactly these three, and nothing else.
   "!picolibc/libos/fallback/getpid.c",
   "!picolibc/libos/fallback/kill.c",
   "!picolibc/libos/fallback/sigprocmask.c",
 
-  # ⚠️⚠️ THE MACHINE DIRECTORIES ARE NOT EXCLUDED HERE, AND PUTTING THEM HERE IS
+  # THE MACHINE DIRECTORIES ARE NOT EXCLUDED HERE, AND PUTTING THEM HERE IS
   # WHAT DOES NOT WORK. A negative glob in the base set is applied to the MERGED
   # set, so `!picolibc/libc/machine/**` cancels the per-target block that adds
   # the right one back. Measured: with it, `mcpp build --target
@@ -254,7 +286,7 @@ sources = [
 
 # ── The machine half ────────────────────────────────────────────
 #
-# ⚠️ ONE BLOCK PER ARCH SPELLING, BECAUSE `cfg(arch = ...)` COMPARES EXACTLY.
+# ONE BLOCK PER ARCH SPELLING, BECAUSE `cfg(arch = ...)` COMPARES EXACTLY.
 # There is no glob, and mcpp spells each M-profile row's arch differently
 # because objects built for them are not interchangeable. The CONTENT of every
 # block is the same — that is the point: one machine directory serves the whole
@@ -268,7 +300,7 @@ sources = [
            "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
            "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
            "!picolibc/libc/machine/x86_64/**",
-           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
            # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
            # and Thumb-2, neither of which an M-profile core has — and meson picks
            # among them by CPU feature. A glob assembles all of them and dies on
@@ -326,7 +358,7 @@ sources = [
            "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
            "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
            "!picolibc/libc/machine/x86_64/**",
-           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
            # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
            # and Thumb-2, neither of which an M-profile core has — and meson picks
            # among them by CPU feature. A glob assembles all of them and dies on
@@ -384,7 +416,7 @@ sources = [
            "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
            "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
            "!picolibc/libc/machine/x86_64/**",
-           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
            # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
            # and Thumb-2, neither of which an M-profile core has — and meson picks
            # among them by CPU feature. A glob assembles all of them and dies on
@@ -442,7 +474,7 @@ sources = [
            "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
            "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
            "!picolibc/libc/machine/x86_64/**",
-           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
            # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
            # and Thumb-2, neither of which an M-profile core has — and meson picks
            # among them by CPU feature. A glob assembles all of them and dies on
@@ -500,7 +532,7 @@ sources = [
            "!picolibc/libc/machine/riscv/**",   "!picolibc/libm/machine/riscv/**",
            "!picolibc/libc/machine/x86/**",     "!picolibc/libm/machine/x86/**",
            "!picolibc/libc/machine/x86_64/**",
-           # ⚠️⚠️ AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
+           # AND THE ARM FILES ARE LISTED, NOT GLOBBED. The machine directory carries variants for
            # every ARM profile upstream serves — `memcpy-armv7a.S` needs ARM mode
            # and Thumb-2, neither of which an M-profile core has — and meson picks
            # among them by CPU feature. A glob assembles all of them and dies on
