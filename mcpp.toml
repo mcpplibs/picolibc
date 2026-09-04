@@ -55,10 +55,16 @@ name        = "picolibc"
 # has not. The fourth segment answers that argument without a second numbering
 # scheme: a packaging-only release is `1.8.12.1`, which orders strictly above
 # `1.8.12` because mcpp compares an arbitrary-length dot list with absent
-# segments as zero, and which satisfies every requirement `1.8.12` satisfies
-# because a bare requirement is a caret. The number a consumer writes is
-# therefore the number upstream released, and a packaging fix remains
-# expressible.
+# segments as zero.
+#
+# A CONSUMER WRITES THE EXACT VERSION, BECAUSE A BARE REQUIREMENT IN mcpp IS AN
+# EXACT PIN AND NOT A CARET. `mcpp::pm::is_version_constraint` returns false for
+# a bare number, so no resolution runs and the literal is used as the address.
+# Measured: with only `22.1.8.2` in the index, a dependency written `"22.1.8"`
+# reported `Downloading v22.1.8` and then `install path missing after fetch` —
+# xlings had resolved and installed the real version while mcpp looked for a
+# directory named after the requirement. A packaging revision therefore costs a
+# re-pin in every consumer, which is what every other version bump costs here.
 #
 # The alternative costs a reader the one question the version exists to answer.
 # `openkal-musl` is 0.13.1 for musl 1.2.5, and nothing in the identity says
@@ -76,9 +82,8 @@ name        = "picolibc"
 # THAN AN EXCEPTION TO IT. An earlier tag named `1.8.12` was published, and
 # mirrored, carrying different bytes. A version that has been published must
 # never come to mean something else, so the packaging revision is what moves.
-# A consumer still writes `1.8.12`: a bare requirement is a caret, and `1.8.12.1`
-# satisfies it.
-version     = "1.8.12.2"
+# A consumer writes `1.8.12.3` in full: a bare requirement in mcpp is an exact pin.
+version     = "1.8.12.3"
 description = "picolibc as a source package: a freestanding C library compiled with the consuming program's own flags, so there is no multilib and no ABI convention to match"
 # THE LICENCE IS A SET, AND NAMING ONE MEMBER OF IT WOULD READ AS EXAMINED.
 # picolibc descends from newlib and the vendored tree carries five identifiers,
@@ -102,7 +107,7 @@ provides    = ["mcpp:c-abi=picolibc"]
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-llvm.compiler-rt-builtins = "22.1.8"
+llvm.compiler-rt-builtins = "22.1.8.2"
 
 # THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #

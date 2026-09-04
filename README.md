@@ -5,14 +5,17 @@ flags**.
 
 ```toml
 [dependencies]
-picolibc.picolibc = "1.8.12"
+picolibc.picolibc = "1.8.12.3"
 ```
 
 That is the whole of it. No `sysroot` line, no payload path, no multilib
 directory to name — the library arrives through the dependency graph and mcpp
-reports `c-abi picolibc (picolibc@1.8.12, graph)`. The version is
-upstream's: every file under `picolibc/` is byte-identical to the 1.8.12
-release, and a packaging-only change would be `1.8.12.1`.
+reports `c-abi picolibc (picolibc@1.8.12.3, graph)`.
+
+The version is upstream's: every file under `picolibc/` is byte-identical to the
+1.8.12 release. The fourth segment is the packaging revision, and it has to be
+written out, because a bare requirement in mcpp is an exact pin rather than a
+caret — `"1.8.12"` names a version that does not exist and fails at fetch.
 
 ## Why source rather than a prebuilt payload
 
