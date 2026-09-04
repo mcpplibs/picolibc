@@ -60,7 +60,7 @@ provides    = ["mcpp:c-abi=picolibc"]
 # supplying their own builtins; the dependency edge says the same thing and can
 # be overridden.
 [dependencies]
-compiler-rt-builtins = { version = "22.1.8", path = "../compiler-rt-builtins" }
+compiler-rt-builtins = "22.1.8"
 
 # ⚠️⚠️ THE HOST LAYER IS A CHOICE, AND COMPILING BOTH IS A DUPLICATE SYMBOL.
 #
